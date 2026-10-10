@@ -25,7 +25,7 @@
   "antiInbox": false,
   "language": "en",
   "notesLanguage": "change to your language with ISO 639-1 code, available languages: vi (Vietnamese), en (English)",
-  "nickNameBot": "⍣⃝↣SUITEᥫ᭡CANDY꧂",
+  "nickNameBot": "⍣⃝↣𝗫𝗨𝗠𝗨 𝗕𝗔𝗕𝗬⍣⃝↣",
   "prefix": ",",
   "commandSuggestion": {
     "enable": true,
@@ -58,7 +58,7 @@
     "ignoreCommand": []
   },
   "adminBot": [
-    "100002344705976"
+    "61595411632306"
   ],
   "whiteListMode": {
     "enable": false,
