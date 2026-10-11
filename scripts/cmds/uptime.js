@@ -1,131 +1,77 @@
-const os = require("os");
+const fs = require("fs");
+const path = require("path");
+const Jimp = require("jimp");
 
-module.exports = {
-	config: {
-		name: "uptime",
-		aliases: ["up", "runtime", "status"],
-		version: "1.0",
-		author: "Neoaz 🐊",
-		countDown: 5,
-		role: 0,
-		description: {
-			en: "show how long the bot has been running and its system stats"
-		},
-		category: "info",
-		guide: {
-			en: "{pn}"
-		}
-	},
+module.exports.config = {
+  name: "uptime",
+  aliases: ["up"],
+  version: "2.0.0",
+  author: "Shanto",
+  countDown: 3,
+  role: 0,
+  description: "Show uptime over the custom image",
+  category: "INFO",
+  guide: { en: "{pn}" }
+};
 
-	langs: {
-		en: {
-			loading: "🐊 Measuring uptime...",
-			format: "╭─────────────⭓"
-				+ "\n│ ⏱️ UPTIME"
-				+ "\n├─────⭔"
-				+ "\n│ %1"
-				+ "\n│ Days: %2 | Hours: %3"
-				+ "\n│ Minutes: %4 | Seconds: %5"
-				+ "\n├─────⭔"
-				+ "\n│ 💻 SYSTEM"
-				+ "\n│ CPU: %6 (%7 cores)"
-				+ "\n│ RAM: %8 / %9 (%10%)"
-				+ "\n│ Platform: %11 %12"
-				+ "\n│ Node: %13"
-				+ "\n├─────⭔"
-				+ "\n│ 🐑 Bot: %14"
-				+ "\n│ 🧩 Commands: %15"
-				+ "\n│ 👥 Users: %16"
-				+ "\n│ 💬 Threads: %17"
-				+ "\n╰─────────────⭓"
-		}
-	},
+function getUptimeText() {
+  const total = Math.floor(process.uptime());
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return `UPTIME  ${days}d ${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
+}
 
-	onStart: async function ({ message, api, getLang, role }) {
-		const startTime = (global.GoatBot && global.GoatBot.startTime) || (Date.now() - process.uptime() * 1000);
-		const msg = await message.reply(getLang("loading"));
+module.exports.onStart = async function ({ api, event }) {
+  const imagePath = path.join(__dirname, "uptime.jpg");
+  const outputPath = path.join(__dirname, `uptime-output-${Date.now()}.jpg`);
 
-		const frames = ["▰▱▱▱▱▱▱▱▱▱", "▰▰▰▱▱▱▱▱▱▱", "▰▰▰▰▰▰▱▱▱▱", "▰▰▰▰▰▰▰▰▱▱", "▰▰▰▰▰▰▰▰▰▰"];
-		const EDIT_INTERVAL = 700;
-		let stopped = false;
-		const canEdit = msg && msg.messageID && typeof api.editMessage == "function";
-		const editSafely = async (text, messageID) => {
-			try {
-				await Promise.race([
-					api.editMessage(text, messageID),
-					new Promise((_, reject) => setTimeout(() => reject(new Error("editMessage timeout")), 8000))
-				]);
-				return true;
-			}
-			catch (err) {
-				return false;
-			}
-		};
-		const animating = canEdit
-			? (async () => {
-				for (const frame of frames) {
-					if (stopped)
-						return;
-					await new Promise(resolve => setTimeout(resolve, EDIT_INTERVAL));
-					if (stopped)
-						return;
-					const ok = await editSafely(`${getLang("loading")}\n${frame}`, msg.messageID);
-					if (!ok)
-						return;
-				}
-			})()
-			: Promise.resolve();
+  try {
+    if (!fs.existsSync(imagePath)) {
+      return api.sendMessage(
+        "uptime.jpg file ta uptime.js-er sathe eki folder-e rakho.",
+        event.threadID,
+        event.messageID
+      );
+    }
 
-		const uptimeMs = Date.now() - startTime;
-		const totalSec = Math.floor(uptimeMs / 1000);
-		const days = Math.floor(totalSec / 86400);
-		const hours = Math.floor((totalSec % 86400) / 3600);
-		const minutes = Math.floor((totalSec % 3600) / 60);
-		const seconds = totalSec % 60;
+    const image = await Jimp.read(imagePath);
+    const font = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
+    const text = getUptimeText();
+    const maxWidth = Math.min(image.bitmap.width - 60, 900);
+    const textHeight = 70;
+    const x = Math.floor((image.bitmap.width - maxWidth) / 2);
+    const y = Math.floor(image.bitmap.height / 2 - textHeight / 2);
+    const options = {
+      text,
+      alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
+      alignmentY: Jimp.VERTICAL_ALIGN_MIDDLE
+    };
 
-		const cpus = os.cpus();
-		const cpuModel = (cpus[0] && cpus[0].model || "Unknown").trim();
-		const cores = cpus.length;
+    // Print twice with a 1px offset to make the white text look bolder.
+    image.print(font, x, y, options, maxWidth, textHeight);
+    image.print(font, x + 1, y, options, maxWidth, textHeight);
 
-		const totalMem = os.totalmem();
-		const freeMem = os.freemem();
-		const usedMem = totalMem - freeMem;
-		const memPercent = ((usedMem / totalMem) * 100).toFixed(1);
+    await image.quality(95).writeAsync(outputPath);
 
-		const human = (bytes) => {
-			const units = ["B", "KB", "MB", "GB", "TB"];
-			let i = 0;
-			let value = bytes;
-			while (value >= 1024 && i < units.length - 1) {
-				value /= 1024;
-				i++;
-			}
-			return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
-		};
-
-		const uptimeString = `${days}d ${hours}h ${minutes}m ${seconds}s`;
-		const botName = (global.GoatBot && global.GoatBot.config && global.GoatBot.config.nickNameBot) || "Goat Bot";
-		const commandCount = global.GoatBot && global.GoatBot.commands ? global.GoatBot.commands.size : 0;
-		const userCount = global.db && global.db.allUserData ? global.db.allUserData.length : 0;
-		const threadCount = global.db && global.db.allThreadData ? global.db.allThreadData.length : 0;
-
-		const body = getLang(
-			"format",
-			uptimeString, days, hours, minutes, seconds,
-			cpuModel, cores,
-			human(usedMem), human(totalMem), memPercent,
-			os.platform(), os.arch(),
-			process.version,
-			botName, commandCount, userCount, threadCount
-		);
-
-		if (canEdit) {
-			await Promise.race([animating, new Promise(resolve => setTimeout(resolve, frames.length * EDIT_INTERVAL + 3000))]);
-			stopped = true;
-			const edited = await editSafely(body, msg.messageID);
-			if (edited)
-				return;
-		}
-		return message.reply(body);
-	}
+    api.sendMessage(
+      { attachment: fs.createReadStream(outputPath) },
+      event.threadID,
+      (err) => {
+        if (err) console.error("Uptime image send error:", err);
+        setTimeout(() => {
+          try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch (_) {}
+        }, 10000);
+      },
+      event.messageID
+    );
+  } catch (error) {
+    console.error("Uptime CMD error:", error);
+    return api.sendMessage(
+      "Uptime image create korte parini. Server-e jimp install ache kina check koro.",
+      event.threadID,
+      event.messageID
+    );
+  }
 };
