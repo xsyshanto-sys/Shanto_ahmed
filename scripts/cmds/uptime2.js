@@ -7,7 +7,7 @@ const GIFEncoder = require("gifencoder");
 module.exports.config = {
   name: "uptime2",
   aliases: ["up2"],
-  version: "1.0.0",
+  version: "1.0.1",
   author: "SHANTO",
   countDown: 5,
   role: 0,
@@ -32,7 +32,7 @@ async function getPing() {
   try {
     await dns.lookup("google.com");
     return Date.now() - start;
-  } catch (error) {
+  } catch (_) {
     return null;
   }
 }
@@ -42,7 +42,7 @@ function countCommands() {
     return fs.readdirSync(__dirname).filter(file =>
       file.endsWith(".js") && !file.endsWith(".disabled.js")
     ).length;
-  } catch (error) {
+  } catch (_) {
     return 0;
   }
 }
@@ -172,7 +172,7 @@ function drawCard(ctx, frame, uptime, ping, commands, memory) {
     );
   }
 
-  // Animated graph panel
+  // Animated graph
   roundedRect(ctx, 42, 404, 876, 94, 14);
 
   ctx.fillStyle = "#0b1011";
@@ -242,34 +242,63 @@ async function createGif(
   const encoder = new GIFEncoder(width, height);
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+
     const output = fs.createWriteStream(outputPath);
 
-    encoder.createReadStream().pipe(output);
+    function fail(error) {
+      if (settled) return;
 
-    output.on("finish", resolve);
-    output.on("error", reject);
+      settled = true;
 
-    encoder.on("error", reject);
+      try {
+        output.destroy();
+      } catch (_) {}
 
-    encoder.start();
-    encoder.setRepeat(0);
-    encoder.setDelay(100);
-    encoder.setQuality(10);
+      try {
+        if (fs.existsSync(outputPath)) {
+          fs.unlinkSync(outputPath);
+        }
+      } catch (_) {}
 
-    for (let frame = 0; frame < 24; frame++) {
-      drawCard(
-        ctx,
-        frame,
-        uptime,
-        ping,
-        commands,
-        memory
-      );
-
-      encoder.addFrame(ctx);
+      reject(error);
     }
 
-    encoder.finish();
+    output.once("error", fail);
+
+    output.once("finish", () => {
+      if (settled) return;
+
+      settled = true;
+      resolve();
+    });
+
+    try {
+      // Do not use encoder.on(); this encoder version does not support it.
+      encoder.createReadStream().pipe(output);
+
+      encoder.start();
+      encoder.setRepeat(0);
+      encoder.setDelay(100);
+      encoder.setQuality(10);
+
+      for (let frame = 0; frame < 24; frame++) {
+        drawCard(
+          ctx,
+          frame,
+          uptime,
+          ping,
+          commands,
+          memory
+        );
+
+        encoder.addFrame(ctx);
+      }
+
+      encoder.finish();
+    } catch (error) {
+      fail(error);
+    }
   });
 }
 
@@ -321,7 +350,7 @@ module.exports.onStart = async function ({ api, event }) {
     console.error("Uptime2 CMD error:", error);
 
     return api.sendMessage(
-      "Uptime2 GIF তৈরি হয়নি। Railway Build Logs পরীক্ষা করো।",
+      "Uptime2 GIF তৈরি হয়নি। Railway Deploy Logs পরীক্ষা করো।",
       event.threadID,
       event.messageID
     );
