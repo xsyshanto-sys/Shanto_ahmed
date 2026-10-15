@@ -4,18 +4,19 @@
 	"description": "A simple Bot chat messenger using personal account. Made by NTKhang.",
 	"main": "index.js",
 	"engines": {
-		"node": ">=22.0.0",
-		"npm": ">=10.0.0"
+		"node": ">=20.0.0",
+		"npm": ">=9.0.0"
 	},
 	"overrides": {
 		"undici": "^6.21.0"
 	},
 	"dependencies": {
+		"@dongdev/fca-unofficial": "^3.0.0",
 		"axios": "^1.7.9",
 		"bcryptjs": "^2.4.3",
 		"body-parser": "^1.20.3",
-		"btch-downloader": "^6.4.0",
-		"canvas": "^3.2.3",
+		"btch-downloader": "^3.0.0",
+		"canvas": "^2.11.2",
 		"chalk": "^4.1.2",
 		"cheerio": "^1.0.0",
 		"connect-flash": "^0.1.1",
@@ -47,7 +48,6 @@
 		"socket.io": "^4.8.1",
 		"sqlite3": "^5.1.7",
 		"totp-generator": "^0.0.14",
-		"xtreme-fca": "^1.0.2",
 		"yt-search": "^2.13.1"
 	},
 	"scripts": {
