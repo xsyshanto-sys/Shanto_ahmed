@@ -1,56 +1,49 @@
- module.exports = {
+module.exports = {
   config: {
-    name: "troll",
-    version: "3.0",
+    name: "🤡",
+    version: "5.0",
     author: "SHANTO",
     countDown: 2,
-    role: 2, // 🔒 Role 2 মানে শুধুমাত্র Bot Admin (আপনি) কমান্ডটি চালাতে পারবেন
+    role: 2, // 🔒 শুধুমাত্র Bot Admin (আপনি) চালাতে পারবেন
     shortDescription: "Troll people (Admin Only)",
     category: "fun",
-    guide: { en: "শুধু 'troll' লিখুন (প্রিফিক্স ছাড়া) বা কারো মেসেজে রিপ্লাই দিয়ে 'troll' লিখুন।" }
+    guide: { en: "শুধু 'troll' লিখুন।" }
   },
 
-  // এটি বটকে এরর থেকে বাঁচাবে এবং কমান্ড লোড হতে দেবে
+  // onStart is missing এরর ফিক্স করার জন্য
   onStart: async function ({ event, api }) {
-    // onChat এ কাজ হবে, তাই এখানে কিছু রাখার দরকার নেই
+    // onChat এ কাজ হবে
   },
 
   onChat: async function ({ event, api }) {
-    const { threadID, senderID, body, messageReply, mentions } = event;
+    const { threadID, senderID, body, messageReply } = event;
     
     // ১. বট নিজে মেসেজ দিলে রিপ্লাই করবে না
     if (!body || senderID == api.getCurrentUserID()) return;
 
     const text = body.toLowerCase().trim();
     
-    // ২. আপনার UID এখানে বসান (নিরাপত্তার জন্য)
-    // আপনার UID না জানলে global.GoatBot.config.adminBot থেকে চেক করবে
-    const myUID = "61595411632306"; // ⚠️ এখানে আপনার আসল Facebook UID দিন
+    // ২. আপনার UID এখানে বসানো আছে (শুধু আপনি এই কমান্ড দিতে পারবেন)
+    const myUID = "61595411632306"; // আপনার UID
     const isBotAdmin = String(senderID) === String(myUID) || global.GoatBot.config.adminBot.includes(String(senderID));
 
-    // ৩. আপনি ছাড়া অন্য কেউ 'troll' লিখলে বট কিছুই করবে না
+    // আপনি ছাড়া অন্য কেউ troll লিখলে বট কিছুই করবে না
     if (!isBotAdmin) return;
 
-    // ৪. চেক করা হচ্ছে আপনি শুধু "troll" বা "Troll" লিখেছেন কিনা (প্রিফিক্স ছাড়া)
-    if (text === "troll" || text === "-troll" || text === ".troll") {
+    // ৩. চেক করা হচ্ছে আপনি শুধু "troll" লিখেছেন কিনা
+    if (text === "troll") {
       
-      const profileLink = "https://www.facebook.com/share/1AJyE7TBDr/";
-      
-      let targetID = senderID; // ডিফল্টভাবে আপনার নিজের আইডি
       let targetName = "তুই";
 
-      // ৫. যদি আপনি কারো মেসেজে রিপ্লাই দিয়ে troll লেখেন
+      // যদি আপনি কারো মেসেজে রিপ্লাই দিয়ে troll লেখেন, তবে তার নামটি নিবে
       if (messageReply) {
-        targetID = messageReply.senderID;
         targetName = messageReply.senderName || "সেই মানুষটা";
       } 
-      // ৬. যদি আপনি কাউকে মেনশন (@tag) করে troll লেখেন
-      else if (mentions && Object.keys(mentions).length > 0) {
-        targetID = Object.keys(mentions)[0];
-        targetName = mentions[targetID].replace("@", "") || "সেই মানুষটা";
-      }
 
-      // ১০০+ ট্রল ক্যাপশন
+      // 🔗 আপনার নির্দিষ্ট ফেসবুক লিংক
+      const profileLink = "https://www.facebook.com/share/1AJyE7TBDr/";
+
+      // ট্রল ক্যাপশন সমূহ
       const captions = [
         `কিরে ${targetName}, তুই নাকি পরকিয়া করতে গিয়ে ধরা পড়সো 🤡\n\nএই নে তোর লিংক ভাইরাল হয়ে গেছে:\n${profileLink}`,
         `কিরে ${targetName}, তোর লিংক নাকি ভাইরাল হয়ে গেছে? 😂\n\nনিজের প্রোফাইল দেখে আয়:\n${profileLink}`,
@@ -147,13 +140,9 @@
         `তুই তো গ্রুপের সেরা "টোকাই" ${targetName} 🐔\n\n${profileLink}`,
         `কিরে ${targetName}, তুই নাকি গ্রুপের সবচেয়ে বড় "পাগল"? 🤪\n\n${profileLink}`,
         `তোর লিংকটা দেখে তো সবাই হাসছে ${targetName} 😂\n\n${profileLink}`,
-        `কিরে ${targetName}, তুই নাকি গ্রুপের সেরা "খানকি"? 🤣\n\n${profileLink}`,
-        `এই যে বোকা ${targetName}, তোর লিংকটা সবাইকে দিয়ে দিলাম 🤡\n\n${profileLink}`,
-        `তোর লিংকটা গ্রুপের সবচেয়ে বড় মজার বিষয় ${targetName} 😂\n\n${profileLink}`,
         `কিরে ${targetName}, তুই নাকি গ্রুপের সেরা "মাগি"? 🤣\n\n${profileLink}`,
         `তুই তো গ্রুপের সেরা "শালা" ${targetName} 🐕\n\n${profileLink}`,
-        `কিরে ${targetName}, তুই নাকি গ্রুপের সবচেয়ে বড় "কুত্তা"? 🐶\n\n${profileLink}`,
-        `তোর প্রোফাইল দেখে তো সবাই হাসছে ${targetName} 🤣\n\n${profileLink}`
+        `কিরে ${targetName}, তুই নাকি গ্রুপের সবচেয়ে বড় "কুত্তা"? 🐶\n\n${profileLink}`
       ];
 
       // র‍্যান্ডম ক্যাপশন সিলেক্ট
