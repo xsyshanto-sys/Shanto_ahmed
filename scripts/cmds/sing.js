@@ -1,265 +1,179 @@
-const { getStreamFromURL } = global.utils;
+const axios = require("axios");
+const yts = require("yt-search");
+const fs = require("fs");
+const path = require("path");
 
-function norm(text) {
-	return String(text || "")
-		.toLowerCase()
-		.normalize("NFKD")
-		.replace(/[\u0300-\u036f]/g, "")
-		.replace(/[^a-z0-9]+/g, " ")
-		.trim();
-}
+const CACHE_DIR = path.join(__dirname, "cache");
+const SONG_API_BASE = "https://eryxenx.agi.bd/api/song";
 
-function scoreTrack(track, query) {
-	const q = norm(query);
-	if (!q)
-		return 0;
-	const title = norm(track.title);
-	const artist = norm(track.artist);
-	const album = norm(track.album);
-	const combined = `${title} ${artist}`.trim();
+async function fetchSongInfo(videoUrl) {
+	const infoRes = await axios.get(SONG_API_BASE, {
+		params: { url: videoUrl },
+		timeout: 60000
+	});
 
-	let score = 0;
-	if (title === q) score += 120;
-	else if (combined === q) score += 110;
-	else if (title.startsWith(q)) score += 80;
-	else if (combined.startsWith(q)) score += 70;
-	else if (title.includes(q)) score += 50;
-	else if (combined.includes(q)) score += 45;
-	else if (album.includes(q)) score += 20;
-
-	const words = q.split(" ").filter(Boolean);
-	if (words.length) {
-		let hit = 0;
-		for (const word of words) {
-			if (title.includes(word)) hit += 2;
-			else if (artist.includes(word)) hit += 2;
-			else if (combined.includes(word)) hit += 1;
-		}
-		score += hit;
+	const data = infoRes.data;
+	if (!data?.success || !data?.downloadUrl) {
+		throw new Error(data?.error || "downloadUrl paoa jayni API response e");
 	}
-
-	if (artist && q.includes(artist)) score += 25;
-	if (title && track.durationMs) score += 1;
-	return score;
+	return data;
 }
 
-function rankTracks(tracks, query) {
-	return tracks
-		.map((track, index) => ({ track, index, score: scoreTrack(track, query) }))
-		.sort((a, b) => b.score - a.score || a.index - b.index)
-		.map(entry => entry.track);
-}
+async function streamDownloadToFile(dlUrl, filePath) {
+	if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
-function safeName(title) {
-	return (title || "song").replace(/[^\w.-]+/g, "_").slice(0, 40) || "song";
-}
+	const response = await axios.get(dlUrl, {
+		responseType: "stream",
+		timeout: 300000,
+		maxContentLength: Infinity,
+		maxBodyLength: Infinity,
+		headers: {
+			"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1"
+		}
+	});
 
-function extFromMime(mime) {
-	if (!mime)
-		return null;
-	if (mime.includes("mpeg") || mime.includes("mp3"))
-		return "mp3";
-	if (mime.includes("mp4") || mime.includes("m4a"))
-		return "m4a";
-	if (mime.includes("ogg"))
-		return "ogg";
-	if (mime.includes("wav"))
-		return "wav";
-	if (mime.includes("jpeg") || mime.includes("jpg"))
-		return "jpg";
-	if (mime.includes("png"))
-		return "png";
-	return null;
-}
+	const contentType = response.headers["content-type"] || "";
+	const isValid = contentType.includes("video") || contentType.includes("audio") || contentType.includes("octet-stream");
 
-async function sendTrack({ api, message, track, caption, editId, editText }) {
-	let attachment = null;
-	const name = safeName(track.title);
-
-	if (editId && editText && typeof api.editMessage == "function") {
+	if (!isValid) {
+		let bodyText = "";
 		try {
-			await api.editMessage(editText, editId);
-		}
-		catch (e) { /* edit is best-effort */ }
-	}
-
-	if (track.audioUrl) {
-		try {
-			attachment = await getStreamFromURL(track.audioUrl, `${name}.mp3`);
-		}
-		catch (e) {
-			attachment = null;
-		}
-	}
-
-	if (attachment)
-		return message.send({ body: caption, attachment });
-
-	if (track.coverArtwork) {
-		try {
-			attachment = await getStreamFromURL(track.coverArtwork, `${name}.jpg`);
-			return message.send({ body: caption, attachment });
-		}
-		catch (e) { /* fall through to text */ }
-	}
-
-	return message.send({ body: caption });
-}
-
-module.exports = {
-	config: {
-		name: "sing",
-		aliases: ["music", "song", "searchmusic"],
-		version: "1.2",
-		author: "Neoaz 🐊",
-		countDown: 5,
-		role: 0,
-		description: {
-			en: "search for a song and send it into the chat"
-		},
-		category: "media",
-		guide: {
-			en: "{pn} <song name or artist>"
-				+ "\n   {pn} <song> -c <number> (show that many results, then reply with a number to send one)"
-				+ "\n   {pn} <song> -n <number> (send a ranked result directly)"
-		}
-	},
-
-	langs: {
-		en: {
-			noQuery: "Please enter a song name or artist to search for.",
-			searching: "Searching...",
-			sending: "Sending the song...",
-			notFound: "No song found for \"%1\". Try a different keyword.",
-			error: "Could not search for music:\n%1",
-			resultsHeader: "Top %1 result(s) for \"%2\"",
-			resultsItem: "%1. %2 — %3",
-			resultsFooter: "Reply to this message with a number (1-%1) to send that song.",
-			invalidChoice: "Please reply with a number between 1 and %1.",
-			title: "%1 — %2",
-			caption: "%1 — %2"
-		}
-	},
-
-	onStart: async function ({ api, args, message, event, prefix, commandName, getLang }) {
-		let listCount = 0;
-		let pick = 1;
-		const filtered = [];
-
-		for (let i = 0; i < args.length; i++) {
-			const arg = args[i];
-			if (arg === "-c" || arg === "--count") {
-				const value = parseInt(args[i + 1]);
-				if (!isNaN(value) && value > 0)
-					listCount = Math.min(value, 20);
-				i++;
-				continue;
+			const chunks = [];
+			for await (const chunk of response.data) {
+				chunks.push(chunk);
+				if (Buffer.concat(chunks).length > 2000) break;
 			}
-			if (arg === "-n" || arg === "--number") {
-				const value = parseInt(args[i + 1]);
-				if (!isNaN(value) && value > 0)
-					pick = value;
-				i++;
-				continue;
-			}
-			filtered.push(arg);
-		}
+			bodyText = Buffer.concat(chunks).toString("utf-8").slice(0, 500);
+		} catch (_) {}
 
-		const query = filtered.join(" ").trim();
-		if (!query)
-			return message.SyntaxError ? message.SyntaxError() : message.reply(getLang("noQuery"));
+		throw new Error(
+			`Invalid content received from downloadUrl (type: ${contentType})` +
+			(bodyText ? ` — upstream said: "${bodyText.trim()}"` : "")
+		);
+	}
 
-		const msg = await message.reply(getLang("searching"));
+	const writer = fs.createWriteStream(filePath);
 
-		const edit = async (body) => {
-			if (msg?.messageID && typeof api.editMessage == "function")
-				return api.editMessage(body, msg.messageID);
-			return message.reply(body);
+	await new Promise((resolve, reject) => {
+		response.data.pipe(writer);
+		let failed = false;
+		const onError = (err) => {
+			if (failed) return;
+			failed = true;
+			writer.close();
+			fs.unlink(filePath, () => {});
+			reject(err);
 		};
+		response.data.on("error", onError);
+		writer.on("error", onError);
+		writer.on("close", () => { if (!failed) resolve(); });
+	});
 
-		let result;
+	const stats = fs.statSync(filePath);
+	if (stats.size < 1024) {
+		fs.unlink(filePath, () => {});
+		throw new Error(`Downloaded file too small (${stats.size} bytes) — corrupt ba failed download`);
+	}
+}
+
+function extractApiErrorMessage(err) {
+	const raw = err.response?.data;
+
+	if (raw && typeof raw === "object" && !Buffer.isBuffer(raw)) {
+		if (raw.error) return raw.error;
+		if (raw.message) return raw.message;
+	}
+
+	if (raw) {
 		try {
-			result = await api.searchMusic(query, { count: 30 });
-		}
-		catch (err) {
-			const detail = err.response?.error || err.error || err.message || String(err);
-			return edit(getLang("error", detail));
-		}
+			const text = Buffer.isBuffer(raw) ? raw.toString("utf-8") : String(raw);
+			const parsed = JSON.parse(text);
+			if (parsed?.error) return parsed.error;
+			if (parsed?.message) return parsed.message;
+		} catch (_) {}
+	}
 
-		if (!result || !result.tracks || result.tracks.length === 0)
-			return edit(getLang("notFound", query));
+	return err.message;
+}
 
-		const ranked = rankTracks(result.tracks, query);
+function tempFilePath(ext) {
+	if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+	return path.join(CACHE_DIR, `sing_${Date.now()}_${Math.floor(Math.random() * 1e4)}.${ext}`);
+}
 
-		if (listCount > 0) {
-			const shown = ranked.slice(0, listCount);
-			const items = shown
-				.map((track, index) => getLang("resultsItem", index + 1, track.title, track.artist))
-				.join("\n");
-			const body = `${getLang("resultsHeader", shown.length, query)}\n${items}\n${getLang("resultsFooter", shown.length)}`;
-
-			if (msg?.messageID && typeof api.editMessage == "function") {
-				await edit(body);
-				global.GoatBot.onReply.set(msg.messageID, {
-					commandName,
-					messageID: msg.messageID,
-					author: event.senderID,
-					tracks: shown
-				});
+async function sendWithRetry(message, msg, retries = 2) {
+	for (let i = 0; i <= retries; i++) {
+		try {
+			return await message.reply(msg);
+		} catch (err) {
+			const is408 = err?.error === 408 || String(err?.message || err).includes("408");
+			if (is408 && i < retries) {
+				console.warn(`[sing] Upload timeout, retrying (${i + 1}/${retries})...`);
+				await new Promise(r => setTimeout(r, 2000));
+				continue;
 			}
-			else {
-				const info = await message.reply(body);
-				if (info?.messageID) {
-					global.GoatBot.onReply.set(info.messageID, {
-						commandName,
-						messageID: info.messageID,
-						author: event.senderID,
-						tracks: shown
-					});
-				}
-			}
-			return;
+			throw err;
+		}
+	}
+}
+
+function react(api, messageID, emoji) {
+	try {
+		api.setMessageReaction(emoji, messageID, () => {}, true);
+	} catch (_) {}
+}
+
+module.exports.config = {
+	name: "sing",
+	aliases: ["song"],
+	version: "2.0.0",
+	author: "EryXenX",
+	countDown: 5,
+	role: 0,
+	shortDescription: "YouTube theke gaan download",
+	longDescription: "Song name diye sorasori mp3 download kore pathay",
+	category: "media",
+	guide: {
+		en: "{pn} <song name>\nExample: {pn} mann mera"
+	}
+};
+
+module.exports.onStart = async function ({ api, event, args, message }) {
+	const { messageID } = event;
+	const query = args.join(" ").trim();
+
+	if (!query) {
+		return message.reply("❌ Song name den.\nExample: sing mann mera");
+	}
+
+	react(api, messageID, "⏳");
+
+	let file;
+	try {
+		const search = await yts(query);
+		const video = search.videos?.[0];
+		if (!video) {
+			react(api, messageID, "❌");
+			return message.reply(`❌ "${query}" er kono result paoa jayni`);
 		}
 
-		const track = ranked[Math.min(pick - 1, ranked.length - 1)];
-		const caption = getLang("caption", track.title, track.artist);
+		const info = await fetchSongInfo(video.url);
+		file = tempFilePath("mp3");
+		await streamDownloadToFile(info.downloadUrl, file);
 
-		try {
-			return await sendTrack({
-				api, message, track, caption,
-				editId: msg?.messageID,
-				editText: getLang("title", track.title, track.artist)
-			});
-		}
-		catch (err) {
-			return edit(getLang("error", err.message || err.error || String(err)));
-		}
-	},
+		await sendWithRetry(message, {
+			body: `🎶 ${info.title || video.title}\n🕒 ${video.timestamp}`,
+			attachment: fs.createReadStream(file)
+		});
 
-	onReply: async function ({ api, event, message, Reply, getLang }) {
-		global.GoatBot.onReply.delete(Reply.messageID);
-		const { tracks, author } = Reply;
-		if (event.senderID !== author)
-			return;
-		const choice = parseInt((event.body || "").trim());
-		if (isNaN(choice) || choice < 1 || choice > tracks.length)
-			return message.reply(getLang("invalidChoice", tracks.length));
-
-		const track = tracks[choice - 1];
-		const caption = getLang("caption", track.title, track.artist);
-		const msg = await message.reply(getLang("sending"));
-		try {
-			return await sendTrack({
-				api, message, track, caption,
-				editId: msg?.messageID,
-				editText: getLang("title", track.title, track.artist)
-			});
-		}
-		catch (err) {
-			const detail = err.message || err.error || String(err);
-			if (msg?.messageID && typeof api.editMessage == "function")
-				return api.editMessage(getLang("error", detail), msg.messageID);
-			return message.reply(getLang("error", detail));
+		react(api, messageID, "✅");
+	} catch (err) {
+		console.error(err);
+		react(api, messageID, "❌");
+		return message.reply("❌ Download failed: " + extractApiErrorMessage(err));
+	} finally {
+		if (file) {
+			try { fs.unlinkSync(file); } catch (e) { console.error("[sing] cleanup error:", e.message); }
 		}
 	}
 };
