@@ -3,7 +3,7 @@ const { getStreamFromURL, findUid } = global.utils;
 
 module.exports = {
 	config: {
-		name: "pfp",
+		name: "pp",
 		aliases: ["profilepic", "avataruser", "getavatar"],
 		version: "1.0",
 		author: "Neoaz 🐊",
