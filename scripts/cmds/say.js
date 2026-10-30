@@ -1,75 +1,93 @@
-
 const axios = require("axios");
 const fs = require("fs-extra");
 const path = require("path");
-const os = require("os");
+
+const API_URL = "https://shanto-fish-api.onrender.com/tts";
+
+const VOICES = {
+  naruto: "d34183dcf4a041f5a82aa3dd19644329",
+  momoi: "4482fc170b434bd68d80ccb1215e61af",
+  man: "e3856b21a37d4a648395292b21539d45",
+  default: "922256d5d40846b1b18986fd1bc9034a"
+};
 
 module.exports = {
   config: {
     name: "say",
-    aliases: ["santoi", "voice"],
-    version: "2.1.0",
+    aliases: ["tts", "voice"],
+    version: "3.0",
     author: "SHANTO",
     countDown: 5,
     role: 0,
-    shortDescription: "SHANTO Fish AI Voice",
-    category: "AI",
-    guide: "{pn} Hello Shanto"
+    shortDescription: "AI Voice Generator",
+    longDescription: "Convert text into AI voice",
+    category: "utility",
+    guide: {
+      en: "{pn} <text>\n{pn} naruto <text>\n{pn} momoi <text>\n{pn} man <text>"
+    }
   },
 
-  onStart: async function ({ event, args, api }) {
-    const text = args.join(" ").trim();
-    if (!text) return;
+  onStart: async function ({ api, event, args }) {
+    const { threadID, messageID } = event;
 
-    const voiceId = "e3856b21a37d4a648395292b21539d45";
-    const API_URL = "https://shanto-fish-api.onrender.com/tts";
+    if (!args.length) return;
 
-    const file = path.join(
-      os.tmpdir(),
-      `santoi-${Date.now()}.mp3`
+    let voice = "default";
+    let text = args.join(" ");
+
+    const first = args[0].toLowerCase();
+
+    if (VOICES[first]) {
+      voice = first;
+      text = args.slice(1).join(" ");
+    }
+
+    if (!text.trim()) return;
+
+    const filePath = path.join(
+      __dirname,
+      "cache",
+      `say_${Date.now()}.mp3`
     );
 
     try {
+      // Only react, no pending message
+      api.setMessageReaction("⏳", messageID, () => {}, true);
+
       const response = await axios.post(
         API_URL,
         {
-          text,
-          reference_id: voiceId,
-          format: "mp3"
+          text: text,
+          reference_id: VOICES[voice]
         },
         {
-          headers: {
-            "Content-Type": "application/json",
-            "Accept": "audio/mpeg"
-          },
           responseType: "arraybuffer",
-          timeout: 120000
+          timeout: 120000,
+          headers: {
+            "Content-Type": "application/json"
+          }
         }
       );
 
-      if (!response.data || response.data.length === 0) {
-        throw new Error("Empty audio response");
-      }
+      await fs.ensureDir(path.dirname(filePath));
+      await fs.writeFile(filePath, Buffer.from(response.data));
 
-      await fs.writeFile(file, Buffer.from(response.data));
+      api.setMessageReaction("✅", messageID, () => {}, true);
 
-      await new Promise((resolve, reject) => {
-        api.sendMessage(
-          {
-            attachment: fs.createReadStream(file)
-          },
-          event.threadID,
-          err => err ? reject(err) : resolve()
-        );
-      });
-
-    } catch (err) {
-      console.error(
-        "SANTOI API Error:",
-        err.response?.status || err.message
+      await api.sendMessage(
+        {
+          attachment: fs.createReadStream(filePath)
+        },
+        threadID,
+        async () => {
+          await fs.remove(filePath).catch(() => {});
+        },
+        messageID
       );
-    } finally {
-      await fs.remove(file).catch(() => {});
+
+    } catch (error) {
+      await fs.remove(filePath).catch(() => {});
+      api.setMessageReaction("❌", messageID, () => {}, true);
     }
   }
 };
